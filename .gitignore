@@ -1,0 +1,4 @@
+.env
+data/
+*.log
+docs/evidencias/*.png

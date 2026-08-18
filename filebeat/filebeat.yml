@@ -1,0 +1,61 @@
+# Filebeat — Recolector de logs de NutriAlianza S.A.
+# Salida hacia Logstash, que reenvia a Loki.
+# Nota tecnica: Filebeat no dispone de salida nativa hacia Loki,
+# por lo que se emplea Logstash con el plugin logstash-output-loki
+# como puente, segun la ruta documentada por Grafana Labs.
+
+filebeat.inputs:
+  - type: filestream
+    id: nginx-access
+    enabled: true
+    paths:
+      - /var/log/nginx/nutrialianza_access.log
+    fields:
+      log_type: nginx_access
+      servicio: nginx
+    fields_under_root: true
+
+  - type: filestream
+    id: nginx-error
+    enabled: true
+    paths:
+      - /var/log/nginx/nutrialianza_error.log
+    fields:
+      log_type: nginx_error
+      servicio: nginx
+    fields_under_root: true
+
+  - type: filestream
+    id: mysql-slow
+    enabled: true
+    paths:
+      - /var/log/mysql/slow.log
+    parsers:
+      - multiline:
+          type: pattern
+          pattern: '^# Time:'
+          negate: true
+          match: after
+    fields:
+      log_type: mysql_slow
+      servicio: mysql
+    fields_under_root: true
+
+  - type: filestream
+    id: host-auth
+    enabled: true
+    paths:
+      - /var/log/host/auth.log
+    fields:
+      log_type: auth
+      servicio: ssh
+    fields_under_root: true
+
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: false
+
+output.logstash:
+  hosts: ["logstash:5044"]
+
+logging.level: info

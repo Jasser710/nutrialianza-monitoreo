@@ -1,0 +1,24 @@
+[DEFAULT]
+bantime  = 10m
+findtime = 10m
+maxretry = 5
+backend  = systemd
+
+[sshd]
+enabled = true
+port    = 22
+logpath = %(sshd_log)s# Configuracion de fail2ban - NutriAlianza S.A.
+[DEFAULT]
+# Duracion del baneo
+bantime = 1h
+# Ventana para contar los fallos
+findtime = 10m
+# Fallos permitidos antes de banear
+maxretry = 5
+# Banear usando reglas de UFW
+banaction = ufw
+
+[sshd]
+enabled = true
+# En Ubuntu 24.04 hay que leer del journal de systemd, no de auth.log
+backend = systemd

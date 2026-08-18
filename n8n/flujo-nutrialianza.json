@@ -1,0 +1,397 @@
+{
+  "name": "NutriAlianza - Monitoreo Inteligente",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Rama sin alerta: se registra el chequeo para trazabilidad\nconst c = $input.first().json;\nreturn [{ json: { estado: 'normal', metricas: c.metricas, timestamp: c.timestamp } }];"
+      },
+      "id": "78b18781-b5fc-462d-96d2-4871b16800ac",
+      "name": "Sin Novedad1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "telegram_token",
+              "value": "COMPLETAR_CON_CREDENCIAL_PROPIA",
+              "type": "string"
+            },
+            {
+              "id": "c2",
+              "name": "telegram_chat_id",
+              "value": "COMPLETAR_CON_CREDENCIAL_PROPIA",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "groq_api_key",
+              "value": "COMPLETAR_CON_CREDENCIAL_PROPIA",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1933ce6-2873-404d-ae63-6dce8283942a",
+      "name": "Configuracion",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2640,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/api/v1/query?query=100%20-%20(avg(rate(node_cpu_seconds_total%7Bmode%3D%22idle%22%7D%5B1m%5D))%20*%20100)",
+        "options": {}
+      },
+      "id": "25044d4e-8f15-4084-8a40-f670a492151a",
+      "name": "Metrica CPU",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2432,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/api/v1/query?query=(1%20-%20(node_memory_MemAvailable_bytes%20%2F%20node_memory_MemTotal_bytes))%20*%20100",
+        "options": {}
+      },
+      "id": "ba116743-b566-4972-881b-d56e2647f151",
+      "name": "Metrica RAM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2208,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://loki:3100/loki/api/v1/query_range",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "{log_type=\"nginx_access\"}"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            },
+            {
+              "name": "since",
+              "value": "5m"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "5ea8760f-df65-4c27-a01e-49abfe807883",
+      "name": "Logs Nginx",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1760,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "fc634beb-7d0a-482b-88fe-82f2cda4b29a",
+      "name": "Cada 5 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2848,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/api/v1/query?query=(1%20-%20(node_filesystem_avail_bytes%7Bmountpoint%3D%22%2F%22%7D%20%2F%20node_filesystem_size_bytes%7Bmountpoint%3D%22%2F%22%7D))%20*%20100",
+        "options": {}
+      },
+      "id": "2afb9754-4cb6-4468-8f66-d47e6fe7c3bb",
+      "name": "Metrica Disco",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1984,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n//  Evaluacion de umbrales - NutriAlianza S.A.\n//  Poner FORZAR_ALERTA en true para pruebas de demostracion\n// ============================================================\nconst FORZAR_ALERTA = false;\n\nconst cfg = $('Configuracion').first().json;\n\nfunction leerMetrica(nodo) {\n  try {\n    const items = $(nodo).all();\n    for (const it of items) {\n      let r = it.json;\n      if (Array.isArray(r)) r = r[0];\n      if (r && r.data && r.data.result && r.data.result.length > 0) {\n        return parseFloat(r.data.result[0].value[1]);\n      }\n    }\n    return null;\n  } catch (e) {\n    return null;\n  }\n}\n\nconst cpu   = leerMetrica('Metrica CPU');\nconst ram   = leerMetrica('Metrica RAM');\nconst disco = leerMetrica('Metrica Disco');\n\nconst debug_cpu = JSON.stringify($('Metrica CPU').all()[0].json).slice(0, 300);\n\nlet errores5xx = 0;\nlet muestraLogs = [];\ntry {\n  const loki = $('Logs Nginx').all()[0].json;\n  for (const s of (loki.data.result || [])) {\n    for (const par of s.values) {\n      muestraLogs.push(par[1]);\n      if (/\" 5\\d{2} /.test(par[1])) errores5xx++;\n    }\n  }\n} catch (e) { muestraLogs = []; }\nmuestraLogs = muestraLogs.slice(0, 15);\n\nconst umbrales = { cpu: 85, ram: 90, disco: 85, errores5xx: 20 };\n\nconst alertas = [];\nif (cpu   !== null && cpu   > umbrales.cpu)   alertas.push(`CPU al ${cpu.toFixed(1)}% (umbral ${umbrales.cpu}%)`);\nif (ram   !== null && ram   > umbrales.ram)   alertas.push(`RAM al ${ram.toFixed(1)}% (umbral ${umbrales.ram}%)`);\nif (disco !== null && disco > umbrales.disco) alertas.push(`Disco al ${disco.toFixed(1)}% (umbral ${umbrales.disco}%)`);\nif (errores5xx > umbrales.errores5xx)         alertas.push(`${errores5xx} errores 5xx en 5 min (umbral ${umbrales.errores5xx})`);\n\nif (FORZAR_ALERTA && alertas.length === 0) {\n  alertas.push(`PRUEBA CONTROLADA - CPU ${cpu !== null ? cpu.toFixed(1) : 'n/d'}%, RAM ${ram !== null ? ram.toFixed(1) : 'n/d'}%`);\n}\n\nreturn [{\n  json: {\n    hay_alerta: alertas.length > 0,\n    alertas: alertas,\n    resumen_alertas: alertas.join(' | '),\n    metricas: {\n      cpu_pct:   cpu   !== null ? Number(cpu.toFixed(2))   : null,\n      ram_pct:   ram   !== null ? Number(ram.toFixed(2))   : null,\n      disco_pct: disco !== null ? Number(disco.toFixed(2)) : null,\n      debug_cpu: debug_cpu,\n      errores_5xx_5min: errores5xx\n    },\n    umbrales: umbrales,\n    muestra_logs: muestraLogs,\n    timestamp: new Date().toISOString(),\n    telegram_token: cfg.telegram_token,\n    telegram_chat_id: cfg.telegram_chat_id,\n    groq_api_key: cfg.groq_api_key\n  }\n}];"
+      },
+      "id": "9aabd8bf-f997-4f0a-822a-cf76c3e73b98",
+      "name": "Evaluar Umbrales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1552,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-alerta",
+              "leftValue": "={{ $json.hay_alerta }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0e4d4352-1686-44b4-a6ce-de5bd3fec113",
+      "name": "Hay Alerta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.groq_api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-120b',\n  temperature: 0.2,\n  response_format: { type: 'json_object' },\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un ingeniero SRE especializado en observabilidad de infraestructura. Analizas telemetria de servidores Linux con Docker. Respondes UNICAMENTE con un objeto JSON valido, sin texto adicional, sin markdown, sin bloques de codigo. El esquema obligatorio es: {\"severidad\":\"baja|media|alta|critica\",\"componente_afectado\":\"string\",\"causa_probable\":\"string\",\"impacto_operativo\":\"string\",\"accion_recomendada\":\"string\",\"comando_diagnostico\":\"string\"}'\n    },\n    {\n      role: 'user',\n      content: 'Servidor: nutrialianza-srv01 (Ubuntu 24.04, Docker).\\nEmpresa: NutriAlianza S.A., nutricion animal.\\nMomento: ' + $json.timestamp + '\\n\\nUMBRALES SUPERADOS:\\n' + $json.resumen_alertas + '\\n\\nMETRICAS ACTUALES:\\n' + JSON.stringify($json.metricas, null, 2) + '\\n\\nMUESTRA DE LOGS DE NGINX (ultimos 5 min):\\n' + ($json.muestra_logs.join('\\n') || 'sin registros') + '\\n\\nAnaliza la correlacion entre las metricas y los logs. Devuelve el JSON.'\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "2eeefd52-1186-4ece-a3b3-1505daa147ba",
+      "name": "Analisis IA (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1104,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Formateo del mensaje de alerta para Telegram\n// ============================================================\n\nconst ctx = $('Evaluar Umbrales').first().json;\nconst resp = $input.first().json;\n\nfunction esc(t) {\n  return String(t == null ? '' : t)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nlet ia;\ntry {\n  let bruto = resp.choices[0].message.content;\n  bruto = bruto.replace(/```json/gi, '').replace(/```/g, '').trim();\n  ia = JSON.parse(bruto);\n} catch (e) {\n  ia = {\n    severidad: 'media',\n    componente_afectado: 'indeterminado',\n    causa_probable: 'No fue posible interpretar la respuesta del modelo.',\n    impacto_operativo: 'Requiere revision manual.',\n    accion_recomendada: 'Revisar Grafana y los logs del servidor.',\n    comando_diagnostico: 'docker compose ps'\n  };\n}\n\nconst iconos = {\n  baja: '\\u{1F7E2}',\n  media: '\\u{1F7E1}',\n  alta: '\\u{1F7E0}',\n  critica: '\\u{1F534}'\n};\nconst icono = iconos[(ia.severidad || '').toLowerCase()] || '\\u26A0\\uFE0F';\n\nconst m = ctx.metricas;\n\nconst mensaje =\n  `${icono} <b>ALERTA - NutriAlianza S.A.</b>\\n` +\n  `<i>Severidad: ${esc((ia.severidad || 'n/d')).toUpperCase()}</i>\\n\\n` +\n  `<b>Condicion detectada</b>\\n${esc(ctx.resumen_alertas)}\\n\\n` +\n  `<b>Telemetria</b>\\n` +\n  `CPU: ${m.cpu_pct ?? 'n/d'}%  |  RAM: ${m.ram_pct ?? 'n/d'}%\\n` +\n  `Disco: ${m.disco_pct ?? 'n/d'}%  |  Errores 5xx: ${m.errores_5xx_5min}\\n\\n` +\n  `<b>Analisis del motor de IA</b>\\n` +\n  `Componente: ${esc(ia.componente_afectado)}\\n` +\n  `Causa probable: ${esc(ia.causa_probable)}\\n` +\n  `Impacto: ${esc(ia.impacto_operativo)}\\n\\n` +\n  `<b>Accion recomendada</b>\\n${esc(ia.accion_recomendada)}\\n\\n` +\n  `<code>${esc(ia.comando_diagnostico)}</code>\\n\\n` +\n  `<i>${esc(ctx.timestamp)}  |  Servidor nutrialianza-srv01</i>`;\n\nreturn [{\n  json: {\n    mensaje: mensaje,\n    analisis_ia: ia,\n    contexto: ctx.metricas,\n    telegram_token: ctx.telegram_token,\n    telegram_chat_id: ctx.telegram_chat_id\n  }\n}];"
+      },
+      "id": "cbae10aa-46c2-4b77-8a38-c899c09c8477",
+      "name": "Formatear Alerta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.telegram_token }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.telegram_chat_id, text: $json.mensaje, parse_mode: 'HTML' }) }}",
+        "options": {}
+      },
+      "id": "bb76ad35-bc21-4bd7-b56f-3106e345bf12",
+      "name": "Enviar a Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -672,
+        544
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Configuracion": {
+      "main": [
+        [
+          {
+            "node": "Metrica CPU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrica CPU": {
+      "main": [
+        [
+          {
+            "node": "Metrica RAM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrica RAM": {
+      "main": [
+        [
+          {
+            "node": "Metrica Disco",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logs Nginx": {
+      "main": [
+        [
+          {
+            "node": "Evaluar Umbrales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cada 5 minutos": {
+      "main": [
+        [
+          {
+            "node": "Configuracion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrica Disco": {
+      "main": [
+        [
+          {
+            "node": "Logs Nginx",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar Umbrales": {
+      "main": [
+        [
+          {
+            "node": "Hay Alerta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay Alerta?": {
+      "main": [
+        [
+          {
+            "node": "Analisis IA (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sin Novedad1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisis IA (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Formatear Alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Alerta": {
+      "main": [
+        [
+          {
+            "node": "Enviar a Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveExecutionProgress": true
+  },
+  "versionId": "7043ee1c-8acb-4e80-ac95-fef2abafbba3",
+  "meta": {
+    "instanceId": "3713220af2e53eece06c025463b3d1c6b97a3c72ec8795283ec0806ccbcdea58"
+  },
+  "nodeGroups": [],
+  "id": "bz1OjUiVVwEeEGu5",
+  "tags": []
+}

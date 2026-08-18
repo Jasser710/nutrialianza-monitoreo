@@ -1,0 +1,22 @@
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+22/tcp (OpenSSH)           ALLOW IN    Anywhere                  
+22/tcp                     ALLOW IN    Anywhere                   # SSH admin
+80/tcp                     ALLOW IN    Anywhere                   # Nginx HTTP
+443/tcp                    ALLOW IN    Anywhere                   # Nginx HTTPS
+3000/tcp                   ALLOW IN    Anywhere                   # Grafana
+5678/tcp                   ALLOW IN    Anywhere                   # N8N
+9090/tcp                   ALLOW IN    Anywhere                   # Prometheus
+22/tcp (OpenSSH (v6))      ALLOW IN    Anywhere (v6)             
+22/tcp (v6)                ALLOW IN    Anywhere (v6)              # SSH admin
+80/tcp (v6)                ALLOW IN    Anywhere (v6)              # Nginx HTTP
+443/tcp (v6)               ALLOW IN    Anywhere (v6)              # Nginx HTTPS
+3000/tcp (v6)              ALLOW IN    Anywhere (v6)              # Grafana
+5678/tcp (v6)              ALLOW IN    Anywhere (v6)              # N8N
+9090/tcp (v6)              ALLOW IN    Anywhere (v6)              # Prometheus
+
