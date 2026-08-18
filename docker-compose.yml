@@ -13,7 +13,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/conf.d/index.html:/usr/share/nginx/html/index.html:ro
       - nginx_logs:/var/log/nginx
     networks:
