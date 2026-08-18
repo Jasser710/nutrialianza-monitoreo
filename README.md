@@ -139,7 +139,7 @@ docker exec na-n8n wget -qO- 'http://loki:3100/loki/api/v1/label/log_type/values
 
 1. Acceder a `http://<IP-DEL-SERVIDOR>:5678`
 2. Menú superior derecho (⋯) → *Import from File*
-3. Seleccionar `n8n/flujo-nutrialianza.json`
+3. Seleccionar `n8n/flujo-nutrialianza-v2.json`
 4. Abrir el nodo **Configuracion** y completar las tres credenciales
 5. Guardar y activar el interruptor **Active**
 
@@ -165,14 +165,22 @@ Las fuentes de datos de Grafana (Prometheus y Loki) se aprovisionan automáticam
 | 1 | Uso de CPU | > 85 % | Alerta activa |
 | 2 | Uso de memoria | > 90 % | Alerta activa |
 | 3 | Uso de disco | > 85 % | Alerta activa |
-| 4 | Errores HTTP 5xx | > 20 en 5 min | Alerta activa |
-| 5 | Consultas lentas de MySQL | > 10 en 5 min | Recolección sin alerta |
-| 6 | Disponibilidad del servicio web | HTTP ≠ 200 | Recolección sin alerta |
-| 7 | Intentos SSH fallidos | > 20 en 10 min | Bloqueo por fail2ban |
-| 8 | Latencia de red | > 200 ms | No implementado |
-| 9 | Consumo de ancho de banda | > 80 Mbps | Recolección vía vnstat |
+| 4 | Consultas lentas de MySQL | > 10 en 5 min | Alerta activa |
+| 5 | Disponibilidad del servicio web | HTTP != 200 o sin respuesta | Alerta activa |
+| 6 | Errores HTTP 5xx | > 50 en 5 min | Alerta activa |
+| 7 | Intentos SSH fallidos | > 20 en 10 min | Alerta activa + bloqueo por fail2ban |
+| 8 | Consumo de ancho de banda | > 80 Mbps | Alerta activa |
+| 9 | Latencia de red (ICMP) y resolución DNS | > 200 ms / sin respuesta | No implementado |
 
-Los puntos marcados como *recolección sin alerta* disponen de los datos en Loki y Prometheus y son consultables desde Grafana, pero no tienen regla de notificación configurada en el flujo de N8N.
+**Cobertura: 8 de 9 puntos con alerta activa.**
+
+El punto 9 requiere sondas ICMP y DNS mediante un exportador adicional (blackbox-exporter), no incluido en esta entrega. Los datos de red se recolectan a nivel de interfaz mediante Node Exporter, lo que cubre el consumo de ancho de banda pero no la latencia de extremo a extremo.
+
+### Mecanismos de resiliencia
+
+- **Supresión de alertas repetidas:** ventana de 10 minutos entre notificaciones equivalentes, para evitar fatiga de alertas ante incidentes prolongados.
+- **Degradación controlada:** cada nodo de recolección continúa ante error. La indisponibilidad de una fuente de datos no interrumpe la evaluación del resto de los puntos.
+- **Sonda directa de disponibilidad:** la verificación HTTP consulta el servicio monitoreado, no su exportador de métricas.
 
 ---
 
